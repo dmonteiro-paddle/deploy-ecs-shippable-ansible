@@ -24,7 +24,7 @@ resources:
     type: params
     version:
       params:
-        AMI_ID: "ami-9eb4b1e5" # review the usage of this AMI
+        AMI_ID: "ami-9eb4b1e5"
 
 ###---------------------------------------------------------------#
 ###----------------------- BUILD/CI Resources --------------------#
@@ -65,7 +65,7 @@ resources:
         ENVIRONMENT: "test"
         EC2_INSTANCE_TYPE: "t2.large"
         EC2_IMAGE: "ami-9eb4b1e5"
-        EC2_KEYPAIR: "TBD" # need to create a new key pair and change it in here.
+        EC2_KEYPAIR: "shippable-ecs"
 
 # Output of Test Provisioning
   - name: test_info
@@ -93,7 +93,6 @@ resources:
     pointer:
       sourceName : "test_env_ecs"
       region: "us-east-1"
-
 
 jobs:
 
