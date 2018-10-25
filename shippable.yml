@@ -1,0 +1,224 @@
+resources:
+
+#---------------------------------------------------------------#
+#-------------------- Common INFRA Resources -------------------#
+#---------------------------------------------------------------#
+
+# Security Ops scripts repo
+  - name: scripts_repo
+    type: gitRepo
+    integration: "dr-github"
+    pointer:
+      sourceName: "dmonteiro-paddle/deploy-ecs-shippable-ansible"
+      branch: master
+
+# AWS CLI config
+  - name: aws_cli_config
+    type: cliConfig
+    integration: dr-aws-keys
+    pointer:
+      region: us-east-1
+
+# SecOps approved AMI
+  - name: ami_sec_approved
+    type: params
+    version:
+      params:
+        AMI_ID: "ami-9eb4b1e5" # review the usage of this AMI
+
+###---------------------------------------------------------------#
+###----------------------- BUILD/CI Resources --------------------#
+###---------------------------------------------------------------#
+
+# Front-end image
+  - name: test_project
+    type: image
+    integration: drship_dockerhub
+    pointer:
+      sourceName: "dmonteiropaddle/test-project-shippable"
+    seed:
+      versionName: "latest"
+
+  - name: test_project_options
+    type: dockerOptions
+    version:
+      memory: 128
+      portMappings:
+        - "3000:3000/tcp"
+
+#---------------------------------------------------------------#
+#----------------------- TEST VPC Resources --------------------#
+#---------------------------------------------------------------#
+# TEST environment config
+
+  - name: test_conf
+    type: params
+    version:
+      params:
+        EC2_REGION: "us-east-1"
+        EC2_TAG_ROLE: "dr-on-demand-test-environments"
+        EC2_TAG_TYPE: "ecs-container-instance"
+        EC2_VOLUME_SIZE: 30
+        EC2_COUNT: 1
+        STATE_RES_NAME: "test_info"
+        ECS_CLUSTER_NAME: "test_env_ecs"
+        ENVIRONMENT: "test"
+        EC2_INSTANCE_TYPE: "t2.large"
+        EC2_IMAGE: "ami-9eb4b1e5"
+        EC2_KEYPAIR: "TBD" # need to create a new key pair and change it in here.
+
+# Output of Test Provisioning
+  - name: test_info
+    type: params
+    version:
+      params:
+        SEED: "initial_version"
+
+# Test VPC Info
+  - name: test_vpc_conf
+    type: params
+    version:
+      params:
+        TEST_VPC_ID: "vpc-a36912da"
+        TEST_PUBLIC_SG_ID: "sg-c30fc8b6"
+        TEST_PUBLIC_SN_01_ID: "subnet-34378e50"
+        TEST_PUBLIC_SN_02_ID: "subnet-34378e50"
+        REGION: "us-east-1"
+
+
+# Reference to ECS Test Cluster
+  - name: test_env_ecs
+    type: cluster
+    integration: "dr-aws-keys"
+    pointer:
+      sourceName : "test_env_ecs"
+      region: "us-east-1"
+
+
+jobs:
+
+#---------------------------------------------------------------#
+#------------------- BUILD/CI with SHIPPABLE CI ----------------#
+#---------------------------------------------------------------#
+
+ # PACKAGE and push app front-end and back-end code into docker hub
+
+  - name: test_project_runCI
+    type: runCI
+    steps:
+      - OUT: test_project
+
+# DEFINE app micro service
+  - name: create_app_test_project
+    type: manifest
+    steps:
+      - IN: test_project
+      - IN: test_project_options
+        applyTo:
+          - test_project
+
+#---------------------------------------------------------------#
+#-------------- TEST Infra Prov Using Ansible  -----------------#
+#---------------------------------------------------------------#
+
+# PROV Test VPC with Ansible
+  - name: prov_test_vpc
+    type: runSh
+    steps:
+      - IN: create_app_test_project
+      - IN: aws_cli_config
+        switch: off
+      - IN: ami_sec_approved
+        switch: off
+      - IN: scripts_repo
+        switch: off
+      - IN: test_conf
+        switch: off
+      - IN: test_vpc_conf
+        switch: off
+      - TASK:
+        - script: shipctl replace
+            $SCRIPTS_REPO_ODTE_STATE/infra/provision-ecs-ansible/ansible.cfg
+            $SCRIPTS_REPO_ODTE_STATE/infra/provision-ecs-ansible/group_vars/ecs-cluster-vars.yml
+        - script: sudo pip install boto3
+        - script: |
+            cd $SCRIPTS_REPO_ODTE_STATE/infra/provision-ecs-ansible
+            ansible-playbook -v ansible-ecs-provision.yml
+      - OUT: test_env_ecs
+        overwrite: true
+      - OUT: test_info
+    on_success:
+      - script: echo "SUCCESS"
+    on_failure:
+      - script: echo "FAILURE"
+
+##---------------------------------------------------------------#
+##-------------------- App Release Automation -------------------#
+##---------------------------------------------------------------#
+
+# DEPLOY to TEST environment
+  - name: deploy_app_test
+    type: deploy
+    steps:
+      - IN: create_app_test_project
+        switch: off
+      - IN: prov_test_vpc
+      - IN: test_env_ecs
+        switch: off
+      - TASK: managed
+
+# RUN System Integration Testing
+  - name: sit
+    type: runSh
+    steps:
+      - IN: scripts_repo
+        switch: off
+      - IN: test_info
+      - IN: deploy_app_test
+      - TASK:
+        # Run tests
+        - script: |
+            pushd $(shipctl get_resource_state "scripts_repo")/tests
+              PARAMS_JSON=$(shipctl get_resource_version_key test_info params)
+              CLUSTER_DNS=$(echo $PARAMS_JSON | jq -r .INST_0_PUBLIC_DNS)
+              echo "ECS Cluster DNS: "$CLUSTER_DNS
+              ./run-tests.sh $CLUSTER_DNS
+            popd
+    on_success:
+      - script: echo "SUCCESS"
+    on_failure:
+      - script: echo "FAILURE"
+
+#---------------------------------------------------------------#
+#----------------------- Deprov Test Infra----------------------#
+#---------------------------------------------------------------#
+
+# DEPROV TEST Infra with Ansible
+  - name: deprov_test_infra
+    type: runSh
+    steps:
+      - IN: sit
+      - IN: aws_cli_config
+        switch: off
+      - IN: test_vpc_conf
+        switch: off
+      - IN: test_conf
+        switch: off
+      - IN: test_info
+        switch: off
+      - IN: scripts_repo
+        switch: off
+      - IN: ami_sec_approved
+        switch: off
+      - TASK:
+        - script: shipctl replace
+            $SCRIPTS_REPO_ODTE_STATE/infra/provision-ecs-ansible/ansible.cfg
+            $SCRIPTS_REPO_ODTE_STATE/infra/provision-ecs-ansible/group_vars/ecs-cluster-vars.yml
+        - script: sudo pip install boto3
+        - script: |
+            cd $SCRIPTS_REPO_ODTE_STATE/infra/provision-ecs-ansible
+            ansible-playbook -v ansible-ecs-terminate.yml
+    on_success:
+      - script: echo "SUCCESS"
+    on_failure:
+      - script: echo "FAILURE"
