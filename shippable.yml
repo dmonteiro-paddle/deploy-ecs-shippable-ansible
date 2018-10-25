@@ -15,7 +15,7 @@ resources:
 # AWS CLI config
   - name: aws_cli_config
     type: cliConfig
-    integration: aws_cli_config
+    integration: aws_keys
     pointer:
       region: us-east-1
 
@@ -89,7 +89,7 @@ resources:
 # Reference to ECS Test Cluster
   - name: test_env_ecs
     type: cluster
-    integration: "aws_cli_config"
+    integration: "aws_keys"
     pointer:
       sourceName : "test_env_ecs"
       region: "us-east-1"
