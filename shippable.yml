@@ -7,7 +7,7 @@ resources:
 # Security Ops scripts repo
   - name: scripts_repo
     type: gitRepo
-    integration: "dr-github"
+    integration: "github"
     pointer:
       sourceName: "dmonteiro-paddle/deploy-ecs-shippable-ansible"
       branch: master
@@ -15,7 +15,7 @@ resources:
 # AWS CLI config
   - name: aws_cli_config
     type: cliConfig
-    integration: dr-aws-keys
+    integration: aws_cli_config
     pointer:
       region: us-east-1
 
@@ -33,7 +33,7 @@ resources:
 # Front-end image
   - name: test_project
     type: image
-    integration: drship_dockerhub
+    integration: dockerhub
     pointer:
       sourceName: "dmonteiropaddle/test-project-shippable"
     seed:
@@ -89,7 +89,7 @@ resources:
 # Reference to ECS Test Cluster
   - name: test_env_ecs
     type: cluster
-    integration: "dr-aws-keys"
+    integration: "aws_cli_config"
     pointer:
       sourceName : "test_env_ecs"
       region: "us-east-1"
