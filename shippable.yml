@@ -102,7 +102,7 @@ jobs:
 
  # PACKAGE and push app front-end and back-end code into docker hub
 
-  - name: test_project_runCI
+  - name: test-project-shippable_runCI
     type: runCI
     steps:
       - OUT: test_project
